@@ -1,0 +1,4 @@
+config.sh
+*.log
+todos.txt
+todos.done.log
