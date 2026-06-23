@@ -7,7 +7,7 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/config.sh"
-LABEL="com.parkito.dailyrecap"
+LABEL="com.dailyrecap.agent"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 LOG_FILE="$SCRIPT_DIR/recap.log"
 

@@ -1,77 +1,101 @@
 #!/usr/bin/env bash
+# =============================================================================
+#  daily-recap — configuration template
+# =============================================================================
+#  Copy this file to config.sh and fill in your own values:
 #
-# parkito-daily-recap configuration TEMPLATE.
+#      cp config.example.sh config.sh
 #
-#   cp config.example.sh config.sh   # then edit config.sh
-#
-# config.sh holds your private Discord webhook and is gitignored. Never commit it.
+#  config.sh is gitignored — it holds your private webhook/token and must never
+#  be committed. This template is safe to commit and share.
+# =============================================================================
 
-# ---------------------------------------------------------------------------
-# REQUIRED — your Discord webhook URL.
-# Discord -> your channel -> Edit Channel -> Integrations -> Webhooks ->
-#            New Webhook -> Copy Webhook URL
-# ---------------------------------------------------------------------------
-DISCORD_WEBHOOK_URL="PASTE_YOUR_DISCORD_WEBHOOK_URL_HERE"
 
-# ---------------------------------------------------------------------------
-# Workspace to scan. Every immediate subfolder containing a .git is auto-included
-# (plus the folder itself if it is a git repo). No need to list repos by hand.
-# ---------------------------------------------------------------------------
-WORKSPACE_DIR="$HOME/Parkito"
+# -----------------------------------------------------------------------------
+#  REQUIRED
+# -----------------------------------------------------------------------------
 
-# Whose commits to include:
-#   auto  -> only your commits, matched by your global `git config user.email`
-#   ""    -> ALL commits in each repo, regardless of author
-#   "you@example.com" -> an explicit email/name to match
-GIT_AUTHOR_FILTER="auto"
+# Discord webhook the recap is posted to.
+#   Discord → your channel → Edit Channel → Integrations → Webhooks
+#           → New Webhook → Copy Webhook URL
+DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/XXXXXXXX/YYYYYYYY"
 
-# When the recap is sent (24-hour clock, local time). Used by install.sh.
+# Folder to scan. Every immediate subfolder containing a .git is picked up
+# automatically (and the folder itself if it is a repo) — no need to list repos.
+WORKSPACE_DIR="$HOME/code"
+
+
+# -----------------------------------------------------------------------------
+#  SCHEDULE & SCOPE
+# -----------------------------------------------------------------------------
+
+# Send time, 24h local clock (applied by install.sh).
 RECAP_HOUR=8
 RECAP_MINUTE=55
 
-# How far back to summarize:
-#   smart -> the previous day; on Mondays it reaches back to Friday (covers the weekend)
-#   <N>   -> the last N days
-LOOKBACK="smart"
-
-# Skip weekends?  true | false
-#   true  -> never deliver on Sat/Sun; Friday's work is reported Monday (via LOOKBACK=smart).
-#            install.sh also schedules the job for weekdays only (Mon-Fri).
-#   false -> deliver every day.
+# Skip weekends?  true → run Mon–Fri only; Friday's work is reported Monday.
 SKIP_WEEKENDS=true
 
-# Include uncommitted / work-in-progress changes (git status)?  true | false
+# How far back to summarize.
+#   smart → the previous day (on Mondays, reaches back to Friday)
+#   <N>   → the last N days
+LOOKBACK="smart"
+
+# Whose commits to include.
+#   auto              → only yours (matched by your global `git config user.email`)
+#   ""                → everyone's commits
+#   "you@example.com" → a specific email/name
+GIT_AUTHOR_FILTER="auto"
+
+# Include uncommitted work-in-progress (git status)?
 INCLUDE_UNCOMMITTED=true
 
-# Include a summary of your Claude Code session prompts for this workspace?  true | false
-INCLUDE_CLAUDE_SESSIONS=true
-
-# Use the `claude` CLI to write a narrative summary?  true | false
-#   true  -> AI-written recap (makes one network call to the Anthropic API)
-#   false -> plain structured list, fully offline/deterministic
-USE_AI_SUMMARY=true
-
-# Still send a short "nothing recorded" note on quiet days?  true | false
+# Send a short note even on days with nothing to report?
 SEND_WHEN_EMPTY=true
 
-# --- Deployment detection ---------------------------------------------------
-# The recap shows a "Deployed" line ONLY when something actually shipped (never
-# a "you didn't deploy" message).
-#
-# Preferred: Netlify (true production deploys). Create a token at
-#   Netlify -> User settings -> Applications -> Personal access tokens -> New token
-# and paste it here. Leave empty to use the git fallback instead.
+
+# -----------------------------------------------------------------------------
+#  AI SUMMARY  (optional — needs the `claude` CLI; falls back to a plain list)
+# -----------------------------------------------------------------------------
+
+# true  → narrative recap written by the `claude` CLI (one API call per run)
+# false → plain structured list, fully offline
+USE_AI_SUMMARY=true
+
+
+# -----------------------------------------------------------------------------
+#  CLAUDE CODE SESSIONS  (optional — only relevant if you use Claude Code)
+# -----------------------------------------------------------------------------
+
+# Fold your Claude Code session prompts for this workspace into the recap.
+# Leave false unless you use Claude Code.
+INCLUDE_CLAUDE_SESSIONS=false
+
+
+# -----------------------------------------------------------------------------
+#  DEPLOY DETECTION  (a "Deployed" line is shown ONLY when you actually shipped)
+# -----------------------------------------------------------------------------
+
+# Option A — Netlify (true production deploys). Recommended if you host on Netlify.
+#   Create a token: Netlify → User settings → Applications →
+#                   Personal access tokens → New access token
 NETLIFY_AUTH_TOKEN=""
-# Optional: limit to specific Netlify site names (space-separated). Empty = all sites.
+
+# Limit to specific Netlify sites (space-separated site names, e.g. "my-app my-marketing").
+# Leave empty to check every site in your account.
 NETLIFY_SITES=""
 
-# Git fallback (used when NETLIFY_AUTH_TOKEN is empty, or Netlify is unreachable):
-# detects new commits merged into the production branch (main/master) of these repos.
-DEPLOY_REPOS="parkito-web parkito-host"
-# Fetch the latest remote refs before checking, so merges show up even if you
-# haven't pulled locally.  true | false
+# Option B — git fallback (used when no Netlify token is set). Lists the repos
+# whose production branch (main/master) means "deployed", e.g. "web-app api".
+# Empty = deploy detection off.
+DEPLOY_REPOS=""
+
+# git fetch before checking, so merges show up even if you haven't pulled locally.
 DEPLOY_GIT_FETCH=true
 
-# Optional explicit binary paths (leave empty to auto-detect)
+
+# -----------------------------------------------------------------------------
+#  ADVANCED (usually leave blank — auto-detected)
+# -----------------------------------------------------------------------------
 CLAUDE_BIN=""
 JQ_BIN=""

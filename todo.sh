@@ -9,7 +9,7 @@
 #   ./todo.sh edit                            open the raw list in $EDITOR
 #
 # Tip: alias it so you can run it from anywhere. Add to ~/.zshrc:
-#   alias todo="$HOME/Parkito/parkito-daily-recap/todo.sh"
+#   alias todo="$HOME/daily-recap/todo.sh"
 # then: todo add "..."
 
 set -uo pipefail

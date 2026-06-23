@@ -9,6 +9,8 @@ It runs **locally** via macOS `launchd`, so it works even when Claude Code (the 
 closed. The only outbound call is to the Anthropic API to write the narrative (and that can
 be turned off — see `USE_AI_SUMMARY`).
 
+> 🚀 **New here? Start with [`SETUP.md`](./SETUP.md)** for a 2-minute quick start.
+
 ## What it reports
 
 - **Shipped / fixed** — your git commits from the previous day, across every git repo in the

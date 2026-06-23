@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# parkito-daily-recap — collect the previous day's work across a workspace of git
-# repos (+ Claude Code session prompts) and post an AI-written recap to a Discord
-# channel via webhook.
+# daily-recap — collect the previous day's work across a workspace of git repos
+# and post an AI-written recap to a Discord channel via webhook. Optionally folds
+# in your Claude Code session prompts, if you use Claude Code.
 #
 # Triggered by launchd at 8:55am (see install.sh), or run manually:  ./recap.sh
 #
@@ -31,11 +31,11 @@ DRY_RUN=0
 [ "${1:-}" = "--dry-run" ] && DRY_RUN=1
 
 # --- defaults for anything missing from config ------------------------------
-: "${WORKSPACE_DIR:=$HOME/Parkito}"
+: "${WORKSPACE_DIR:=$HOME/code}"
 : "${GIT_AUTHOR_FILTER:=auto}"
 : "${LOOKBACK:=smart}"
 : "${INCLUDE_UNCOMMITTED:=true}"
-: "${INCLUDE_CLAUDE_SESSIONS:=true}"
+: "${INCLUDE_CLAUDE_SESSIONS:=false}"
 : "${USE_AI_SUMMARY:=true}"
 : "${SEND_WHEN_EMPTY:=true}"
 : "${CLAUDE_BIN:=}"
@@ -44,7 +44,7 @@ DRY_RUN=0
 : "${SKIP_WEEKENDS:=true}"
 : "${NETLIFY_AUTH_TOKEN:=}"
 : "${NETLIFY_SITES:=}"
-: "${DEPLOY_REPOS:=parkito-web parkito-host}"
+: "${DEPLOY_REPOS:=}"
 : "${DEPLOY_GIT_FETCH:=true}"
 
 log "=== run start (workspace=$WORKSPACE_DIR) ==="
@@ -198,34 +198,50 @@ if [ "$INCLUDE_CLAUDE_SESSIONS" = "true" ]; then
   fi
 fi
 
-# --- deliver helpers --------------------------------------------------------
-post_discord() {
-  # $1 = title (empty for continuation chunks), $2 = description
-  local title="$1" desc="$2" payload http
+# --- delivery: one clean embed (narrative body + deploy/to-do fields) -------
+# Uses globals: DATE_LABEL, NARRATIVE, DEPLOY_NAME, DEPLOY_VALUE, TODOS_NAME, TODOS_VALUE
+post_embed() {
+  local title desc ts payload http
+  title="$(printf '\xf0\x9f\x97\x93\xef\xb8\x8f  Daily Recap \xc2\xb7 %s' "$DATE_LABEL")"
+  desc="${NARRATIVE:0:4000}"
+  ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
   if [ "$DRY_RUN" -eq 1 ]; then
-    printf '\n----- DRY RUN: would post to Discord -----\n%s\n\n%s\n------------------------------------------\n' "$title" "$desc"
+    printf '\n===== DRY RUN: Discord embed preview =====\n# %s\n\n%s\n' "$title" "$desc"
+    [ -n "$DEPLOY_VALUE" ] && printf '\n[ %s ]\n%s\n' "$DEPLOY_NAME" "$DEPLOY_VALUE"
+    [ -n "$TODOS_VALUE" ]  && printf '\n[ %s ]\n%s\n' "$TODOS_NAME" "$TODOS_VALUE"
+    printf '==========================================\n'
     return 0
   fi
-  payload="$("$JQ_BIN" -n --arg t "$title" --arg d "$desc" \
-    '{username:"Parkito Recap",
-      embeds:[ ({description:$d, color:5814783} + (if $t=="" then {} else {title:$t} end)) ]}')"
+
+  payload="$("$JQ_BIN" -n \
+    --arg title "$title" \
+    --arg desc  "$desc" \
+    --arg dname "$DEPLOY_NAME" \
+    --arg dval  "${DEPLOY_VALUE:0:1024}" \
+    --arg tname "$TODOS_NAME" \
+    --arg tval  "${TODOS_VALUE:0:1024}" \
+    --arg ts    "$ts" \
+    '{
+       username: "Daily Recap",
+       embeds: [ {
+         title: $title,
+         description: (if $desc == "" then null else $desc end),
+         color: 5814783,
+         timestamp: $ts,
+         footer: { text: "daily-recap" },
+         fields: (
+             (if $dval != "" then [ {name: $dname, value: $dval, inline: false} ] else [] end)
+           + (if $tval != "" then [ {name: $tname, value: $tval, inline: false} ] else [] end)
+         )
+       } ]
+     }')"
   http="$(curl -sS -o /dev/null -w '%{http_code}' \
     -H 'Content-Type: application/json' -X POST -d "$payload" "$DISCORD_WEBHOOK_URL")"
   case "$http" in
     200|204) log "Discord post OK ($http)"; return 0 ;;
     *)       log "Discord post FAILED (HTTP $http)"; return 1 ;;
   esac
-}
-
-deliver() {
-  # chunk body to Discord's 4096-char embed-description limit
-  local title="$1" body="$2" max=4000 first=1 chunk t
-  while [ "${#body}" -gt 0 ]; do
-    chunk="${body:0:$max}"
-    body="${body:${#chunk}}"
-    if [ "$first" -eq 1 ]; then t="$title"; first=0; else t=""; fi
-    post_discord "$t" "$chunk" || return 1
-  done
 }
 
 # --- deploy detection (only reported when a deploy actually happened) -------
@@ -280,68 +296,55 @@ detect_deploys_via_git() {
   printf '%s' "$out" | sed '/^$/d'
 }
 
-DEPLOY_BLOCK=""
-deploy_lines=""
-deploy_header=""
+# --- deploy detection -> DEPLOY_NAME / DEPLOY_VALUE -------------------------
+DEPLOY_NAME=""
+DEPLOY_VALUE=""
 if [ -n "$NETLIFY_AUTH_TOKEN" ]; then
-  if deploy_lines="$(detect_deploys_via_netlify)"; then
-    deploy_header="$(printf '\xf0\x9f\x9a\x80 **Deployed to production**')"
+  if DEPLOY_VALUE="$(detect_deploys_via_netlify)"; then
+    DEPLOY_NAME="$(printf '\xf0\x9f\x9a\x80 Deployed to production')"
   else
     log "deploy: netlify check failed; falling back to git merge detection"
-    deploy_lines="$(detect_deploys_via_git)"
-    deploy_header="$(printf '\xf0\x9f\x9a\x80 **Merged to production branch** (likely deployed)')"
+    DEPLOY_VALUE="$(detect_deploys_via_git)"
+    DEPLOY_NAME="$(printf '\xf0\x9f\x9a\x80 Merged to production branch (likely deployed)')"
   fi
 else
-  deploy_lines="$(detect_deploys_via_git)"
-  deploy_header="$(printf '\xf0\x9f\x9a\x80 **Merged to production branch** (likely deployed)')"
+  DEPLOY_VALUE="$(detect_deploys_via_git)"
+  DEPLOY_NAME="$(printf '\xf0\x9f\x9a\x80 Merged to production branch (likely deployed)')"
 fi
-if [ -n "$deploy_lines" ]; then
-  DEPLOY_BLOCK="$(printf '\n\n%s\n%s' "$deploy_header" "$deploy_lines")"
-  log "deploy: detected"
-fi
+[ -n "$DEPLOY_VALUE" ] && log "deploy: detected"
 
-# --- today's to-dos (verbatim, never AI-rewritten) --------------------------
-TODOS_BLOCK=""
-if [ -s "$TODO_FILE" ]; then
-  todos_list="$(grep -v '^[[:space:]]*$' "$TODO_FILE" | sed 's/^/- /')"
-  if [ -n "$todos_list" ]; then
-    TODOS_BLOCK="$(printf '\n\n\xf0\x9f\x93\x8b **To-dos for today**\n%s' "$todos_list")"
-    log "todos: $(printf '%s\n' "$todos_list" | grep -c '^- ')"
-  fi
-fi
+# --- today's to-dos (verbatim, never AI-rewritten) -------------------------
+TODOS_NAME="$(printf '\xf0\x9f\x93\x8b To-dos for today')"
+TODOS_VALUE=""
+[ -s "$TODO_FILE" ] && TODOS_VALUE="$(grep -v '^[[:space:]]*$' "$TODO_FILE" | sed 's/^/- /')"
+[ -n "$TODOS_VALUE" ] && log "todos: $(printf '%s\n' "$TODOS_VALUE" | grep -c '^- ')"
 
-# --- assemble extras (appended after the narrative) -------------------------
-EXTRAS="$DEPLOY_BLOCK$TODOS_BLOCK"
-
-# --- empty-day short circuit ------------------------------------------------
-if [ "$HAS_ACTIVITY" -eq 0 ]; then
-  log "no commit/session activity for window"
-  if [ -n "$EXTRAS" ]; then
-    # send just the extras (deploys / to-dos), stripping leading blank lines
-    deliver "Daily Recap - $DATE_LABEL" "$(printf '%s' "$EXTRAS" | sed '/./,$!d')"
-  elif [ "$SEND_WHEN_EMPTY" = "true" ]; then
-    deliver "Daily Recap - $DATE_LABEL" "No git commits, uncommitted changes, or Claude Code sessions recorded for this period. Enjoy the quiet."
+# --- narrative (AI summary of commits / WIP / sessions) --------------------
+NARRATIVE=""
+if [ "$HAS_ACTIVITY" -eq 1 ]; then
+  if [ "$USE_AI_SUMMARY" = "true" ] && [ -n "$CLAUDE_BIN" ]; then
+    PROMPT="You are writing a brief daily work recap (a personal standup) for a developer. Based ONLY on the git activity and Claude Code session prompts below for ${DATE_LABEL}, write a concise, friendly narrative of what they worked on. Group by project/repo. Clearly separate what was SHIPPED/FIXED (commits) from WORK IN PROGRESS (uncommitted changes) and EXPLORED (Claude sessions). Use light Discord markdown (bold repo names, short bullets). Keep it under 1200 characters. No preamble, no sign-off, no 'Here is' headers, and do NOT add any closing/decorative emoji. If something is unclear, summarize at a high level rather than guessing details. Do NOT claim anything was deployed, shipped to production, or released — deployment status is reported separately, so ignore it entirely."
+    NARRATIVE="$(printf '%s' "$REPORT" | "$CLAUDE_BIN" -p "$PROMPT" --output-format text 2>>"$LOG_FILE" || true)"
+    [ -z "$NARRATIVE" ] && log "AI summary empty (claude failed?) — falling back to raw report"
   else
-    log "SEND_WHEN_EMPTY=false; skipping send"
+    log "AI summary disabled or claude not found — using raw report"
   fi
-  log "=== run end ==="
-  exit 0
+  [ -z "$NARRATIVE" ] && NARRATIVE="$REPORT"
 fi
 
-# --- summarize --------------------------------------------------------------
-SUMMARY=""
-if [ "$USE_AI_SUMMARY" = "true" ] && [ -n "$CLAUDE_BIN" ]; then
-  PROMPT="You are writing a brief daily work recap (a personal standup) for a developer. Based ONLY on the git activity and Claude Code session prompts below for ${DATE_LABEL}, write a concise, friendly narrative of what they worked on. Group by project/repo. Clearly separate what was SHIPPED/FIXED (commits) from WORK IN PROGRESS (uncommitted changes) and EXPLORED (Claude sessions). Use light Discord markdown (bold repo names, short bullets). Keep it under 1500 characters. No preamble, no sign-off, no 'Here is' headers. If something is unclear, summarize at a high level rather than guessing details. Do NOT claim anything was deployed, shipped to production, or released — deployment status is reported separately, so ignore it entirely."
-  SUMMARY="$(printf '%s' "$REPORT" | "$CLAUDE_BIN" -p "$PROMPT" --output-format text 2>>"$LOG_FILE" || true)"
-  [ -z "$SUMMARY" ] && log "AI summary empty (claude failed?) — falling back to raw report"
-else
-  log "AI summary disabled or claude not found — using raw report"
+# --- nothing at all to report? ---------------------------------------------
+if [ -z "$NARRATIVE" ] && [ -z "$DEPLOY_VALUE" ] && [ -z "$TODOS_VALUE" ]; then
+  if [ "$SEND_WHEN_EMPTY" = "true" ]; then
+    NARRATIVE="Nothing recorded for this period. Enjoy the quiet."
+  else
+    log "nothing to report; SEND_WHEN_EMPTY=false; skipping"
+    log "=== run end ==="
+    exit 0
+  fi
 fi
-[ -z "$SUMMARY" ] && SUMMARY="$REPORT"
-SUMMARY="$SUMMARY$EXTRAS"
 
 # --- send -------------------------------------------------------------------
-if deliver "Daily Recap - $DATE_LABEL" "$SUMMARY"; then
+if post_embed; then
   log "=== run end (delivered) ==="
 else
   log "=== run end (delivery FAILED) ==="

@@ -4,7 +4,7 @@
 
 set -uo pipefail
 
-LABEL="com.parkito.dailyrecap"
+LABEL="com.dailyrecap.agent"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 UID_NUM="$(id -u)"
 
