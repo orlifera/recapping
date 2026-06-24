@@ -24,6 +24,12 @@ DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/XXXXXXXX/YYYYYYYY"
 # automatically (and the folder itself if it is a repo) — no need to list repos.
 WORKSPACE_DIR="$HOME/code"
 
+# Limit which repos are included, by folder-name glob(s), space-separated.
+# Empty = every git repo in WORKSPACE_DIR. (The recap tool's own folder is
+# ALWAYS skipped, regardless of this setting.)
+#   e.g.  REPO_INCLUDE="myproject-*"   or   REPO_INCLUDE="api web mobile"
+REPO_INCLUDE=""
+
 
 # -----------------------------------------------------------------------------
 #  SCHEDULE & SCOPE

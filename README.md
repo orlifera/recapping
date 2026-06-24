@@ -77,6 +77,7 @@ All settings live in `config.sh` (template: [`config.example.sh`](./config.examp
 |---|---|---|
 | `DISCORD_WEBHOOK_URL` | — | Your webhook (required). Gitignored. |
 | `WORKSPACE_DIR` | `$HOME/code` | Folder to scan; each subfolder with a `.git` is included. |
+| `REPO_INCLUDE` | `""` | Only include repos whose folder name matches these glob(s), e.g. `"app-*"`. Empty = all. The tool's own folder is always skipped. |
 | `GIT_AUTHOR_FILTER` | `auto` | `auto` = only your commits; `""` = all; or an explicit email. |
 | `RECAP_HOUR` / `RECAP_MINUTE` | `8` / `55` | Send time (24h, local). |
 | `SKIP_WEEKENDS` | `true` | Run Mon–Fri only; Friday reported Monday. |

@@ -32,6 +32,7 @@ DRY_RUN=0
 
 # --- defaults for anything missing from config ------------------------------
 : "${WORKSPACE_DIR:=$HOME/code}"
+: "${REPO_INCLUDE:=}"
 : "${GIT_AUTHOR_FILTER:=auto}"
 : "${LOOKBACK:=smart}"
 : "${INCLUDE_UNCOMMITTED:=true}"
@@ -114,12 +115,27 @@ fi
 log "window: $SINCE .. $UNTIL"
 
 # --- discover repos ---------------------------------------------------------
+# Always skip the recap tool's own folder. If REPO_INCLUDE is set, keep only
+# repos whose folder name matches one of its glob patterns (e.g. "parkito-*").
 REPOS=()
-[ -d "$WORKSPACE_DIR/.git" ] && REPOS+=("$WORKSPACE_DIR")
+[ -d "$WORKSPACE_DIR/.git" ] && [ "$WORKSPACE_DIR" != "$SCRIPT_DIR" ] && REPOS+=("$WORKSPACE_DIR")
 for d in "$WORKSPACE_DIR"/*/; do
-  [ -d "${d}.git" ] && REPOS+=("${d%/}")
+  [ -d "${d}.git" ] || continue
+  repo_path="${d%/}"
+  [ "$repo_path" = "$SCRIPT_DIR" ] && continue           # never recap ourselves
+  name="$(basename "$repo_path")"
+  if [ -n "$REPO_INCLUDE" ]; then
+    match=0
+    set -f                                   # split patterns without glob-expanding them
+    for pat in $REPO_INCLUDE; do
+      case "$name" in $pat) match=1; break ;; esac
+    done
+    set +f
+    [ "$match" -eq 1 ] || continue
+  fi
+  REPOS+=("$repo_path")
 done
-log "repos found: ${#REPOS[@]}"
+log "repos found: ${#REPOS[@]}${REPO_INCLUDE:+ (filter: $REPO_INCLUDE)}"
 
 # --- collect activity -------------------------------------------------------
 REPORT="# Work report for $DATE_LABEL (workspace: $(basename "$WORKSPACE_DIR"))"
