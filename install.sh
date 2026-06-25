@@ -30,6 +30,11 @@ mkdir -p "$HOME/Library/LaunchAgents"
 # PATH for launchd's minimal environment (homebrew + user-local bin first)
 PATH_LINE="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
+# claude reads its login from the macOS keychain keyed by the current user. launchd
+# does not set USER for agents, and without it claude fails to authenticate (the AI
+# summary comes back as "Not logged in" / "API Error: 401"). Pass it through.
+USER_NAME="${USER:-$(id -un)}"
+
 # Build the schedule. SKIP_WEEKENDS=true -> only Mon–Fri (Weekday 1..5); else daily.
 if [ "$SKIP_WEEKENDS" = "true" ]; then
   ITEMS=""
@@ -78,6 +83,8 @@ $SCHEDULE_BLOCK
         <string>$PATH_LINE</string>
         <key>HOME</key>
         <string>$HOME</string>
+        <key>USER</key>
+        <string>$USER_NAME</string>
     </dict>
     <key>StandardOutPath</key>
     <string>$LOG_FILE</string>

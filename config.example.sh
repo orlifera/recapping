@@ -105,3 +105,8 @@ DEPLOY_GIT_FETCH=true
 # -----------------------------------------------------------------------------
 CLAUDE_BIN=""
 JQ_BIN=""
+
+# Seconds to wait for network connectivity before the run's first network call.
+# A scheduled job can fire the instant the Mac wakes, before Wi-Fi is back; this
+# polls until the connection is up (then proceeds regardless). 0 disables the wait.
+NETWORK_WAIT_SECS=60

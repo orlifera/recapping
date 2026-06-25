@@ -47,6 +47,7 @@ DRY_RUN=0
 : "${NETLIFY_SITES:=}"
 : "${DEPLOY_REPOS:=}"
 : "${DEPLOY_GIT_FETCH:=true}"
+: "${NETWORK_WAIT_SECS:=60}"
 
 log "=== run start (workspace=$WORKSPACE_DIR) ==="
 
@@ -82,6 +83,25 @@ CLAUDE_BIN="$(find_bin claude "$CLAUDE_BIN" "$HOME/.local/bin/claude" /opt/homeb
 if [ -z "$DISCORD_WEBHOOK_URL" ] || [ "$DISCORD_WEBHOOK_URL" = "PASTE_YOUR_DISCORD_WEBHOOK_URL_HERE" ]; then
   echo "ERROR: DISCORD_WEBHOOK_URL is not set in config.sh" >&2; log "ERROR webhook not set"; exit 1
 fi
+
+# --- wait for network -------------------------------------------------------
+# A scheduled run often fires the instant the Mac wakes from sleep, before Wi-Fi
+# has reassociated. Without this gate the first network calls (Netlify, git
+# fetch, the AI summary, the Discord post) all hit a dead connection and fail.
+# Best-effort: poll a lightweight connectivity endpoint, then proceed regardless.
+wait_for_network() {
+  local secs="${NETWORK_WAIT_SECS:-60}" elapsed=0
+  while :; do
+    if curl -fsS --max-time 5 -o /dev/null https://captive.apple.com 2>/dev/null; then
+      [ "$elapsed" -gt 0 ] && log "network: came up after ~${elapsed}s"
+      return 0
+    fi
+    [ "$elapsed" -ge "$secs" ] && break
+    sleep 2; elapsed=$((elapsed+2))
+  done
+  log "network: unreachable after ~${secs}s — proceeding anyway"
+  return 1
+}
 
 # --- author filter ----------------------------------------------------------
 AUTHOR=""
@@ -312,6 +332,9 @@ detect_deploys_via_git() {
   printf '%s' "$out" | sed '/^$/d'
 }
 
+# --- ensure connectivity before the first network call ---------------------
+wait_for_network
+
 # --- deploy detection -> DEPLOY_NAME / DEPLOY_VALUE -------------------------
 DEPLOY_NAME=""
 DEPLOY_VALUE=""
@@ -340,8 +363,17 @@ NARRATIVE=""
 if [ "$HAS_ACTIVITY" -eq 1 ]; then
   if [ "$USE_AI_SUMMARY" = "true" ] && [ -n "$CLAUDE_BIN" ]; then
     PROMPT="You are writing a brief daily work recap (a personal standup) for a developer. Based ONLY on the git activity and Claude Code session prompts below for ${DATE_LABEL}, write a concise, friendly narrative of what they worked on. Group by project/repo. Clearly separate what was SHIPPED/FIXED (commits) from WORK IN PROGRESS (uncommitted changes) and EXPLORED (Claude sessions). Use light Discord markdown (bold repo names, short bullets). Keep it under 1200 characters. No preamble, no sign-off, no 'Here is' headers, and do NOT add any closing/decorative emoji. If something is unclear, summarize at a high level rather than guessing details. Do NOT claim anything was deployed, shipped to production, or released — deployment status is reported separately, so ignore it entirely."
-    NARRATIVE="$(printf '%s' "$REPORT" | "$CLAUDE_BIN" -p "$PROMPT" --output-format text 2>>"$LOG_FILE" || true)"
-    [ -z "$NARRATIVE" ] && log "AI summary empty (claude failed?) — falling back to raw report"
+    ai_out="$(printf '%s' "$REPORT" | "$CLAUDE_BIN" -p "$PROMPT" --output-format text 2>>"$LOG_FILE")"
+    ai_rc=$?
+    if [ "$ai_rc" -ne 0 ]; then
+      log "AI summary failed (claude exit $ai_rc) — falling back to raw report: ${ai_out:0:160}"
+    elif printf '%s' "$ai_out" | grep -qiE 'not logged in|please run /login|API Error|invalid authentication|authentication_error|invalid api key'; then
+      # claude prints auth/usage errors to STDOUT (sometimes with a zero exit), so an
+      # empty-check alone isn't enough — never let an error string become the recap.
+      log "AI summary looked like an error — falling back to raw report: ${ai_out:0:160}"
+    else
+      NARRATIVE="$ai_out"
+    fi
   else
     log "AI summary disabled or claude not found — using raw report"
   fi
